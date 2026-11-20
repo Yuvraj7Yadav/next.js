@@ -227,4 +227,139 @@ describe('app-dir root layout', () => {
       .waitForElementByCss('#root-b')
     expect(await browser.hasElementByCssSelector('#root-a')).toBeFalse()
   })
+
+  it('should allow retrying hard navigation after repeated HTTP 204 cancellations', async () => {
+    let page: any
+    let remaining204 = 2
+    let hit204Count = 0
+    const browser = await next.browser('/root-layout-a', {
+      beforePageLoad(p: any) {
+        page = p
+        page.route('**/root-layout-b', async (route: any) => {
+          const req = route.request()
+          if (
+            remaining204 > 0 &&
+            req.method() === 'GET' &&
+            (req.isNavigationRequest?.() ||
+              (req.resourceType?.() === 'document' && !req.headers()['rsc']))
+          ) {
+            remaining204--
+            hit204Count++
+            return route.fulfill({
+              status: 204,
+              headers: { 'cache-control': 'no-store' },
+            })
+          }
+          return route.continue()
+        })
+      },
+    })
+
+    await browser.waitForElementByCss('#root-a')
+    await page.evaluate(() => {
+      ;(window as any).__docId = 'initial-doc'
+    })
+
+    // First click: triggers hard navigation that receives 204
+    await page.locator('#link-to-b').click({ noWaitAfter: true })
+    await check(() => hit204Count, 1)
+    await check(async () => {
+      return (await browser.eval('window.__docId')) === 'initial-doc' &&
+        (await browser.eval('window.location.pathname')) === '/root-layout-a'
+        ? 'stayed'
+        : 'navigated'
+    }, 'stayed')
+
+    // Second click: triggers hard navigation that receives 204 again
+    await page.locator('#link-to-b').click({ noWaitAfter: true })
+    await check(() => hit204Count, 2)
+    await check(async () => {
+      return (await browser.eval('window.__docId')) === 'initial-doc' &&
+        (await browser.eval('window.location.pathname')) === '/root-layout-a'
+        ? 'stayed'
+        : 'navigated'
+    }, 'stayed')
+
+    // Third click: 204 is no longer returned; navigation should succeed
+    await page.locator('#link-to-b').click({ noWaitAfter: true })
+    await browser.waitForElementByCss('#root-b')
+    expect(await browser.hasElementByCssSelector('#root-a')).toBeFalse()
+  })
+
+  it('should allow retrying hard navigation after dismissed beforeunload', async () => {
+    let page: any
+    let dismissedBeforeUnloadCount = 0
+    const browser = await next.browser('/root-layout-a', {
+      beforePageLoad(p: any) {
+        page = p
+        page.on('dialog', async (dialog: any) => {
+          dismissedBeforeUnloadCount++
+          await dialog.dismiss()
+        })
+      },
+    })
+
+    await browser.waitForElementByCss('#root-a')
+    await page.evaluate(() => {
+      ;(window as any).__docId = 'initial-doc'
+      const handler = (e: any) => {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+      window.addEventListener('beforeunload', handler)
+      ;(window as any).__removeBeforeUnload = () => {
+        window.removeEventListener('beforeunload', handler)
+      }
+    })
+
+    // First click: beforeunload dialog is dismissed
+    await page.locator('#link-to-b').click({ noWaitAfter: true })
+    await check(() => dismissedBeforeUnloadCount, 1)
+    await check(async () => {
+      return (await browser.eval('window.__docId')) === 'initial-doc' &&
+        (await browser.eval('window.location.pathname')) === '/root-layout-a'
+        ? 'stayed'
+        : 'navigated'
+    }, 'stayed')
+
+    // Second click: beforeunload dialog is dismissed again
+    await page.locator('#link-to-b').click({ noWaitAfter: true })
+    await check(() => dismissedBeforeUnloadCount, 2)
+    await check(async () => {
+      return (await browser.eval('window.__docId')) === 'initial-doc' &&
+        (await browser.eval('window.location.pathname')) === '/root-layout-a'
+        ? 'stayed'
+        : 'navigated'
+    }, 'stayed')
+
+    // Remove beforeunload handler
+    await page.evaluate(() => {
+      ;(window as any).__removeBeforeUnload?.()
+    })
+
+    // Third click: retry navigation to the same URL
+    await page.locator('#link-to-b').click({ noWaitAfter: true })
+    await browser.waitForElementByCss('#root-b')
+    expect(await browser.hasElementByCssSelector('#root-a')).toBeFalse()
+  })
+
+  it('should allow subsequent hard navigation after back/forward traversal', async () => {
+    const browser = await next.browser('/root-layout-a')
+    await browser.waitForElementByCss('#root-a')
+
+    // Navigate to root-layout-b
+    await browser.elementByCss('#link-to-b').click()
+    await browser.waitForElementByCss('#root-b')
+    expect(await browser.hasElementByCssSelector('#root-a')).toBeFalse()
+
+    // Traverse back to root-layout-a
+    await browser.back()
+    await browser.waitForElementByCss('#root-a')
+    expect(await browser.hasElementByCssSelector('#root-b')).toBeFalse()
+
+    // Navigate to root-layout-b again
+    await browser.elementByCss('#link-to-b').click()
+    await browser.waitForElementByCss('#root-b')
+    expect(await browser.hasElementByCssSelector('#root-a')).toBeFalse()
+  })
 })

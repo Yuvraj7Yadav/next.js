@@ -51,10 +51,6 @@ import { RootLayoutBoundary } from '../../lib/framework/boundary-components'
 import type { StaticIndicatorState } from '../dev/hot-reloader/app/hot-reloader-app'
 import { getAssetTokenQuery } from '../../shared/lib/deployment-id'
 
-const globalMutable: {
-  pendingMpaPath?: string
-} = {}
-
 // A Back/Forward press before the router's popstate listener exists moves the
 // browser to a different history entry than the one the document was activated
 // on, and the resulting popstate fires with nobody listening. The activation
@@ -274,11 +270,6 @@ function Router({
         return
       }
 
-      // Clear the pendingMpaPath value so that a subsequent MPA navigation to the same URL can be triggered.
-      // This is necessary because if the browser restored from bfcache, the pendingMpaPath would still be set to the value
-      // of the last MPA navigation.
-      globalMutable.pendingMpaPath = undefined
-
       restore(
         new URL(window.location.href),
         window.history.state.__PRIVATE_NEXTJS_INTERNALS_TREE
@@ -334,7 +325,7 @@ function Router({
   const { pushRef } = state
   if (pushRef.mpaNavigation) {
     // if there's a re-render, we don't want to trigger another redirect if one is already in flight to the same URL
-    if (globalMutable.pendingMpaPath !== canonicalUrl) {
+    if (pushRef.pendingMpaPath !== canonicalUrl) {
       const location = window.location
       if (pushRef.pendingPush) {
         location.assign(canonicalUrl)
@@ -342,7 +333,7 @@ function Router({
         location.replace(canonicalUrl)
       }
 
-      globalMutable.pendingMpaPath = canonicalUrl
+      pushRef.pendingMpaPath = canonicalUrl
     }
     // TODO-APP: Should we listen to navigateerror here to catch failed
     // navigations somehow? And should we call window.stop() if a SPA navigation

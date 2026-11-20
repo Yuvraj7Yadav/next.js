@@ -203,6 +203,11 @@ export interface PushRef {
    * Skip applying the router state to the browser history state.
    */
   preserveCustomHistoryState: boolean
+  /**
+   * Tracks whether location.assign/replace was already invoked for this navigation,
+   * preventing duplicate navigation triggers during component re-renders.
+   */
+  pendingMpaPath?: string
 }
 
 /**
